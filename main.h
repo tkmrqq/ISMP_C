@@ -19,7 +19,7 @@
 // Константы
 const int DEFAULT_TIMEOUT = 1000;
 const int DEFAULT_TTL = 128;
-const int PACKET_SIZE = 32;
+const int PACKET_SIZE = 1472;
 const int MAX_HOPS = 30;
 
 // Структуры данных
@@ -71,7 +71,7 @@ void MultiPing(const std::vector<std::string>& hosts);
 std::vector<TraceRouteResult> TraceRoute(const std::string& host, int max_hops = MAX_HOPS);
 void PrintTraceRoute(const std::vector<TraceRouteResult>& results);
 void SmurfAttack(const std::string& victim, const std::string& broadcast, int count = 5);
-void FloodSmurf(const std::string& victim, const std::string& broadcast);
+void FloodSmurf(const std::string& victim, const std::string& broadcast, int count);
 void PrintMenu();
 
 // Вспомогательные функции

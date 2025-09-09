@@ -54,8 +54,8 @@ void menuSmurfAttack(){
     std::cout << "Введите количество пакетов: ";
     std::cin >> count;
     std::cin.ignore();
-    FloodSmurf(victim, broadcast);
-    //                    SmurfAttack(victim, broadcast, count);
+    FloodSmurf(victim, broadcast, count);
+//    SmurfAttack(victim, broadcast, count);
 }
 
 void PrintMenu() {
